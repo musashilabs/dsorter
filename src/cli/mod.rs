@@ -10,9 +10,13 @@ use notify::EventKind::{Create, Modify};
 use notify::event::CreateKind::File;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{Event, RecursiveMode, Watcher};
+use signal_hook::consts::SIGHUP;
+use signal_hook::flag;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -41,6 +45,9 @@ pub enum Commands {
 
     ///Show current daemon status
     Status,
+
+    /// Reload config without restarting
+    Reload,
 }
 
 pub fn print_log_head(log_path: &Path, n: usize) {
@@ -79,7 +86,10 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
         std::process::exit(1);
     }
 
-    let config = match config::load_or_create_config() {
+    let reload_flag = Arc::new(AtomicBool::new(false));
+    flag::register(SIGHUP, Arc::clone(&reload_flag)).expect("failed to register SIGHUP handler");
+
+    let mut config = match config::load_or_create_config() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("config error: {e}");
@@ -88,8 +98,8 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
     };
 
     // println!("{config:#?}");
-    let ext_map = build_extension_map(&config);
-    let partial: HashSet<String> =
+    let mut ext_map = build_extension_map(&config);
+    let mut partial: HashSet<String> =
         config.partial.extensions.iter().map(|s| s.to_lowercase()).collect();
 
     let watch_path = expand_tilde(&config.watch.path);
@@ -110,6 +120,17 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
     watcher.watch(&watch_path, RecursiveMode::NonRecursive).unwrap();
 
     for res in rx {
+        if reload_flag.swap(false, Ordering::Relaxed) {
+            match config::load_or_create_config() {
+                Ok(new_config) => {
+                    config = new_config;
+                    ext_map = build_extension_map(&config);
+                    partial = config.partial.extensions.iter().map(|s| s.to_lowercase()).collect();
+                    log_line(log_path, "config reloaded");
+                }
+                Err(e) => log_line(log_path, &format!("reload failed, keeping old config: {e}")),
+            }
+        }
         match res {
             Ok(event) => {
                 if event.kind == Create(File)
@@ -187,5 +208,15 @@ pub fn handle_status(pid_path: &Path, status_path: &Path) {
             Err(_) => println!("dsorter is running (pid {pid}) — no status file yet"),
         },
         _ => println!("dsorter is not running"),
+    }
+}
+
+pub fn handle_reload(pid_path: &Path) {
+    match read_existing_pid(pid_path) {
+        Some(pid) if pid_is_alive(pid) => {
+            kill(Pid::from_raw(pid), Signal::SIGHUP).expect("failed to send SIGHUP");
+            println!("reloaded dsorter config (pid {pid})");
+        }
+        _ => eprintln!("dsorter is not running"),
     }
 }
