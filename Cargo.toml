@@ -1,6 +1,6 @@
 [package]
 name = "dsorter"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 description = "A background tool that watches a directory and automatically sorts new files into folders based on their type."
