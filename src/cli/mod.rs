@@ -18,7 +18,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::mpsc::RecvTimeoutError;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
 #[command(name = "dsorter", about = "Watches a folder and auto-sorts new files by type")]
@@ -119,7 +120,7 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
     let mut watcher = notify::recommended_watcher(tx).unwrap();
     watcher.watch(&watch_path, RecursiveMode::NonRecursive).unwrap();
 
-    for res in rx {
+    loop {
         if reload_flag.swap(false, Ordering::Relaxed) {
             match config::load_or_create_config() {
                 Ok(new_config) => {
@@ -163,6 +164,16 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
                 Err(e) => log_line(log_path, &format!("reload failed, keeping old config: {e}")),
             }
         }
+
+        let res = match rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(res) => res,
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => {
+                log_line(log_path, "watcher channel disconnected, shutting down");
+                break;
+            }
+        };
+
         match res {
             Ok(event) => {
                 if event.kind == Create(File)

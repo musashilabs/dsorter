@@ -11,7 +11,7 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="443362df-87e9-4729-8159-3094d1de2372" name="Changes" comment="feat: add support for reload">
+    <list default="true" id="443362df-87e9-4729-8159-3094d1de2372" name="Changes" comment="fix: config change supports watch path change">
       <change beforePath="$PROJECT_DIR$/src/cli/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/cli/mod.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -100,7 +100,7 @@
       <workItem from="1789290392290" duration="8525000" />
       <workItem from="1789308035894" duration="4369000" />
       <workItem from="1789379362621" duration="3397000" />
-      <workItem from="1789670774999" duration="657000" />
+      <workItem from="1789670774999" duration="967000" />
     </task>
     <task id="LOCAL-00001" summary="initial commit">
       <option name="closed" value="true" />
@@ -278,7 +278,15 @@
       <option name="project" value="LOCAL" />
       <updated>1789671381979</updated>
     </task>
-    <option name="localTasksCounter" value="23" />
+    <task id="LOCAL-00023" summary="fix: config change supports watch path change">
+      <option name="closed" value="true" />
+      <created>1789671580619</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1789671580619</updated>
+    </task>
+    <option name="localTasksCounter" value="24" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -296,7 +304,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="log file changes using notify crate" />
     <MESSAGE value="chore: log file names" />
     <MESSAGE value="chore: add types and mapping" />
     <MESSAGE value="fix: remove vec mapping and replace with normal mapping" />
@@ -321,6 +328,7 @@
     <MESSAGE value="feat: add status command and code refactors/cleanup" />
     <MESSAGE value="feat: release 0.2.0" />
     <MESSAGE value="feat: add support for reload" />
-    <option name="LAST_COMMIT_MESSAGE" value="feat: add support for reload" />
+    <MESSAGE value="fix: config change supports watch path change" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix: config change supports watch path change" />
   </component>
 </project>
