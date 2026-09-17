@@ -102,7 +102,7 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
     let mut partial: HashSet<String> =
         config.partial.extensions.iter().map(|s| s.to_lowercase()).collect();
 
-    let watch_path = expand_tilde(&config.watch.path);
+    let mut watch_path = expand_tilde(&config.watch.path);
     let status_path = status_path().expect("Could nto determine the status path");
 
     let started_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
@@ -123,6 +123,38 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
         if reload_flag.swap(false, Ordering::Relaxed) {
             match config::load_or_create_config() {
                 Ok(new_config) => {
+                    let new_watch_path = expand_tilde(&new_config.watch.path);
+                    if new_watch_path != watch_path {
+                        if let Err(e) = watcher.unwatch(&watch_path) {
+                            log_line(
+                                log_path,
+                                &format!("failed to unwatch {}: {e}", watch_path.display()),
+                            );
+                        }
+                        match watcher.watch(&new_watch_path, RecursiveMode::NonRecursive) {
+                            Ok(()) => {
+                                log_line(
+                                    log_path,
+                                    &format!("now watching {}", new_watch_path.display()),
+                                );
+                                watch_path = new_watch_path;
+                                status.watching = watch_path.display().to_string();
+                                write_status(&status_path, &status);
+                            }
+                            Err(e) => {
+                                // new path failed — fall back to the old one
+                                log_line(
+                                    log_path,
+                                    &format!(
+                                        "failed to watch {}: {e} — reverting",
+                                        new_watch_path.display()
+                                    ),
+                                );
+                                let _ = watcher.watch(&watch_path, RecursiveMode::NonRecursive);
+                            }
+                        }
+                    }
+
                     config = new_config;
                     ext_map = build_extension_map(&config);
                     partial = config.partial.extensions.iter().map(|s| s.to_lowercase()).collect();
