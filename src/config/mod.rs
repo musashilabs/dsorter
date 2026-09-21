@@ -9,7 +9,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
@@ -36,8 +36,11 @@ pub fn config_path() -> Result<PathBuf, ConfigError> {
     Ok(proj_dirs.config_dir().join("config.toml"))
 }
 
-pub fn load_or_create_config() -> Result<Config, ConfigError> {
-    let path = config_path()?;
+pub fn load_or_create_config(override_path: Option<&Path>) -> Result<Config, ConfigError> {
+    let path = match override_path {
+        Some(p) => p.to_path_buf(),
+        None => config_path()?,
+    };
 
     if !path.exists() {
         let parent = path.parent().ok_or(ConfigError::NoConfigDir)?;

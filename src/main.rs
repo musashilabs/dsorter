@@ -1,7 +1,7 @@
 use clap::Parser;
 use dsorter::cli::{
-    Cli, Commands, handle_reload, handle_start, handle_status, handle_stop, print_log_head,
-    print_log_tail,
+    Cli, Commands, handle_install, handle_reload, handle_start, handle_status, handle_stop,
+    print_log_head, print_log_tail,
 };
 use dsorter::config;
 use notify::Result;
@@ -24,7 +24,9 @@ fn main() -> Result<()> {
             return Ok(());
         }
 
-        Some(Commands::Start) => handle_start(&pid_path, &log_path),
+        Some(Commands::Start { dry_run }) => {
+            handle_start(&pid_path, &log_path, cli.config.as_deref(), dry_run)
+        }
 
         Some(Commands::Stop) => handle_stop(&pid_path),
 
@@ -32,15 +34,22 @@ fn main() -> Result<()> {
 
         Some(Commands::Reload) => handle_reload(&pid_path),
 
+        Some(Commands::Install) => handle_install(),
+
         None => {
             println!("dsorter — watches a folder and auto-sorts new files by type\n");
             println!("USAGE:");
-            println!("  dsorter start           Start watching (daemonizes)");
-            println!("  dsorter stop            Stop the running daemon");
-            println!("  dsorter status          Show current daemon status");
-            println!("  dsorter reload          Reload config without restarting");
-            println!("  dsorter log --tail N    Show last N log lines");
-            println!("  dsorter log --head N    Show first N log lines");
+            println!("  dsorter start                  Start watching (daemonizes)");
+            println!("  dsorter start --dry-run        Classify and log without moving files");
+            println!("  dsorter stop                   Stop the running daemon");
+            println!("  dsorter status                 Show current daemon status");
+            println!("  dsorter reload                 Reload config without restarting");
+            println!(
+                "  dsorter install                Install a launchd/systemd unit to run dsorter on login/boot"
+            );
+            println!("  dsorter log --tail N           Show last N log lines");
+            println!("  dsorter log --head N           Show first N log lines");
+            println!("  dsorter --config <path>        Use a custom config file path");
             println!("\nRun `dsorter --help` for full details.");
         }
     }

@@ -14,7 +14,7 @@ use signal_hook::consts::SIGHUP;
 use signal_hook::flag;
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -26,12 +26,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
+
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
 pub enum Commands {
     /// Start watching and sorting (daemonizes)
-    Start,
+    Start {
+        /// Classify and log without actually moving files
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Stop the running daemon
     Stop,
     /// View recent log entries
@@ -49,6 +56,9 @@ pub enum Commands {
 
     /// Reload config without restarting
     Reload,
+
+    /// Install a launchd/systemd unit to run dsorter on login/boot
+    Install,
 }
 
 pub fn print_log_head(log_path: &Path, n: usize) {
@@ -67,7 +77,12 @@ pub fn print_log_tail(log_path: &Path, n: usize) {
     }
 }
 
-pub fn handle_start(pid_path: &Path, log_path: &Path) {
+pub fn handle_start(
+    pid_path: &Path,
+    log_path: &Path,
+    config_override: Option<&Path>,
+    dry_run: bool,
+) {
     if let Some(pid) = read_existing_pid(pid_path) {
         if pid_is_alive(pid) {
             eprintln!("dsorter is already running (pid {pid})");
@@ -77,10 +92,7 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
         }
     }
 
-    let stdout = fs::File::create(log_path).unwrap();
-    let stderr = stdout.try_clone().unwrap();
-
-    let daemonize = Daemonize::new().pid_file(pid_path).stdout(stdout).stderr(stderr);
+    let daemonize = Daemonize::new().pid_file(pid_path);
 
     if let Err(e) = daemonize.start() {
         eprintln!("failed to daemonize: {e}");
@@ -90,7 +102,7 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
     let reload_flag = Arc::new(AtomicBool::new(false));
     flag::register(SIGHUP, Arc::clone(&reload_flag)).expect("failed to register SIGHUP handler");
 
-    let mut config = match config::load_or_create_config() {
+    let mut config = match config::load_or_create_config(config_override) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("config error: {e}");
@@ -122,7 +134,7 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
 
     loop {
         if reload_flag.swap(false, Ordering::Relaxed) {
-            match config::load_or_create_config() {
+            match config::load_or_create_config(config_override) {
                 Ok(new_config) => {
                     let new_watch_path = expand_tilde(&new_config.watch.path);
                     if new_watch_path != watch_path {
@@ -198,19 +210,29 @@ pub fn handle_start(pid_path: &Path, log_path: &Path) {
                     log_line(log_path, &format!("{filename} -> {category:?}"));
 
                     if let Some(dest_dir) = destination_for(category, &config) {
-                        match move_file(path, &dest_dir) {
-                            Ok(()) => {
-                                log_line(
-                                    log_path,
-                                    &format!("moved {filename} -> {}", dest_dir.display()),
-                                );
-                                status.files_sorted += 1;
-                                status.last_action =
-                                    Some(format!("moved {filename} -> {}", dest_dir.display()));
-                                write_status(&status_path, &status);
-                            }
-                            Err(e) => {
-                                log_line(log_path, &format!("failed to move {filename}: {e}"))
+                        if dry_run {
+                            log_line(
+                                log_path,
+                                &format!(
+                                    "[dry-run] would move {filename} -> {}",
+                                    dest_dir.display()
+                                ),
+                            );
+                        } else {
+                            match move_file(path, &dest_dir) {
+                                Ok(()) => {
+                                    log_line(
+                                        log_path,
+                                        &format!("moved {filename} -> {}", dest_dir.display()),
+                                    );
+                                    status.files_sorted += 1;
+                                    status.last_action =
+                                        Some(format!("moved {filename} -> {}", dest_dir.display()));
+                                    write_status(&status_path, &status);
+                                }
+                                Err(e) => {
+                                    log_line(log_path, &format!("failed to move {filename}: {e}"))
+                                }
                             }
                         }
                     }
@@ -262,4 +284,64 @@ pub fn handle_reload(pid_path: &Path) {
         }
         _ => eprintln!("dsorter is not running"),
     }
+}
+
+#[cfg(target_os = "macos")]
+pub fn handle_install() {
+    let exe = std::env::current_exe().expect("could not resolve binary path");
+    let home = dirs::home_dir().expect("no home dir");
+    let plist_path = home.join("Library/LaunchAgents/com.rohit.dsorter.plist");
+
+    let plist = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rohit.dsorter</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{}</string>
+        <string>start</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
+"#,
+        exe.display()
+    );
+
+    fs::write(&plist_path, plist).expect("failed to write plist");
+    println!("wrote {}", plist_path.display());
+    println!("run: launchctl load {}", plist_path.display());
+}
+
+#[cfg(target_os = "linux")]
+pub fn handle_install() {
+    let exe = std::env::current_exe().expect("could not resolve binary path");
+    let home = dirs::home_dir().expect("no home dir");
+    let unit_dir = home.join(".config/systemd/user");
+    fs::create_dir_all(&unit_dir).expect("failed to create systemd user dir");
+    let unit_path = unit_dir.join("dsorter.service");
+
+    let unit = format!(
+        r#"[Unit]
+Description=dsorter file watcher
+
+[Service]
+ExecStart={} start
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+"#,
+        exe.display()
+    );
+
+    fs::write(&unit_path, unit).expect("failed to write unit file");
+    println!("wrote {}", unit_path.display());
+    println!("run: systemctl --user enable --now dsorter.service");
 }

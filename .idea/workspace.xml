@@ -11,8 +11,12 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="443362df-87e9-4729-8159-3094d1de2372" name="Changes" comment="fix: config change supports watch path change">
+    <list default="true" id="443362df-87e9-4729-8159-3094d1de2372" name="Changes" comment="docs: 0.3.0 release">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/cli/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/cli/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/config/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/config/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -100,7 +104,8 @@
       <workItem from="1789290392290" duration="8525000" />
       <workItem from="1789308035894" duration="4369000" />
       <workItem from="1789379362621" duration="3397000" />
-      <workItem from="1789670774999" duration="967000" />
+      <workItem from="1789670774999" duration="1768000" />
+      <workItem from="1789997021563" duration="1409000" />
     </task>
     <task id="LOCAL-00001" summary="initial commit">
       <option name="closed" value="true" />
@@ -286,7 +291,23 @@
       <option name="project" value="LOCAL" />
       <updated>1789671580619</updated>
     </task>
-    <option name="localTasksCounter" value="24" />
+    <task id="LOCAL-00024" summary="chore: make config change cheap by parking thread rather than spinning">
+      <option name="closed" value="true" />
+      <created>1789671866368</created>
+      <option name="number" value="00024" />
+      <option name="presentableId" value="LOCAL-00024" />
+      <option name="project" value="LOCAL" />
+      <updated>1789671866368</updated>
+    </task>
+    <task id="LOCAL-00025" summary="docs: 0.3.0 release">
+      <option name="closed" value="true" />
+      <created>1789671908019</created>
+      <option name="number" value="00025" />
+      <option name="presentableId" value="LOCAL-00025" />
+      <option name="project" value="LOCAL" />
+      <updated>1789671908019</updated>
+    </task>
+    <option name="localTasksCounter" value="26" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -304,8 +325,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="chore: log file names" />
-    <MESSAGE value="chore: add types and mapping" />
     <MESSAGE value="fix: remove vec mapping and replace with normal mapping" />
     <MESSAGE value="chore: skip partial extension based files" />
     <MESSAGE value="fix: track modified files during the rename ( downloading a file is not just one event )" />
@@ -329,6 +348,8 @@
     <MESSAGE value="feat: release 0.2.0" />
     <MESSAGE value="feat: add support for reload" />
     <MESSAGE value="fix: config change supports watch path change" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix: config change supports watch path change" />
+    <MESSAGE value="chore: make config change cheap by parking thread rather than spinning" />
+    <MESSAGE value="docs: 0.3.0 release" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs: 0.3.0 release" />
   </component>
 </project>
