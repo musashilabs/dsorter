@@ -11,12 +11,11 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="443362df-87e9-4729-8159-3094d1de2372" name="Changes" comment="docs: 0.3.0 release">
+    <list default="true" id="443362df-87e9-4729-8159-3094d1de2372" name="Changes" comment="feat: add release based on dist">
+      <change afterPath="$PROJECT_DIR$/.github/workflows/release.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/dist-workspace.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/cli/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/cli/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/config/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/config/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -325,7 +324,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="fix: remove vec mapping and replace with normal mapping" />
     <MESSAGE value="chore: skip partial extension based files" />
     <MESSAGE value="fix: track modified files during the rename ( downloading a file is not just one event )" />
     <MESSAGE value="feat: add config based loading" />
@@ -350,6 +348,7 @@
     <MESSAGE value="fix: config change supports watch path change" />
     <MESSAGE value="chore: make config change cheap by parking thread rather than spinning" />
     <MESSAGE value="docs: 0.3.0 release" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs: 0.3.0 release" />
+    <MESSAGE value="feat: add release based on dist" />
+    <option name="LAST_COMMIT_MESSAGE" value="feat: add release based on dist" />
   </component>
 </project>
