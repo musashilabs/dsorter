@@ -28,10 +28,19 @@ notify = "8.2.0"
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
 toml = "1.1.6"
+serde_json = "1.0.151"
+
+[target.'cfg(unix)'.dependencies]
 daemonize = "0.5.0"
 nix = { version = "0.31.3", features = ["signal"] }
-serde_json = "1.0.151"
 signal-hook = "0.4.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_Security",
+] }
 
 # The profile that 'dist' will build with
 [profile.dist]

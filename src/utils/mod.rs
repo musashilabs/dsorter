@@ -18,7 +18,7 @@ pub fn build_extension_map(config: &Config) -> HashMap<String, Category> {
 }
 
 pub fn expand_tilde(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
+    if let Some(rest) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
         let home = dirs::home_dir().expect("could not determine home directory");
         home.join(rest)
     } else {
