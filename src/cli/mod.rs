@@ -1,17 +1,10 @@
-use crate::config::{Status, status_path, write_status};
-use crate::config::{pid_is_alive, read_existing_pid};
+use crate::config::{Status, pid_is_alive, read_existing_pid, status_path, write_status};
 use crate::types::{classify, destination_for};
 use crate::{build_extension_map, config, expand_tilde, log_line, move_file};
 use clap::{Parser, Subcommand};
-use daemonize::Daemonize;
-use nix::sys::signal::{Signal, kill};
-use nix::unistd::Pid;
 use notify::EventKind::{Create, Modify};
-use notify::event::CreateKind::File;
-use notify::event::{ModifyKind, RenameMode};
+use notify::event::ModifyKind;
 use notify::{Event, RecursiveMode, Watcher};
-use signal_hook::consts::SIGHUP;
-use signal_hook::flag;
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -20,6 +13,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+#[cfg(unix)]
+use daemonize::Daemonize;
+#[cfg(unix)]
+use nix::sys::signal::{Signal, kill};
+#[cfg(unix)]
+use nix::unistd::Pid;
+#[cfg(unix)]
+use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
+#[cfg(unix)]
+use signal_hook::flag;
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+use std::process::{Command, Stdio};
 
 #[derive(Parser)]
 #[command(name = "dsorter", about = "Watches a folder and auto-sorts new files by type")]
@@ -92,20 +101,107 @@ pub fn handle_start(
         }
     }
 
-    let daemonize = Daemonize::new().pid_file(pid_path);
+    #[cfg(windows)]
+    if std::env::var_os("DSORTER_DAEMON").is_none() {
+        let exe = std::env::current_exe().expect("could not resolve current exe");
+        let mut command = Command::new(exe);
+        if let Some(config_path) = config_override {
+            command.arg("--config").arg(config_path);
+        }
+        command.arg("start");
+        if dry_run {
+            command.arg("--dry-run");
+        }
+        command.env("DSORTER_DAEMON", "1");
+        command.creation_flags(0x00000008 | 0x00000200);
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::null());
+        command.stderr(Stdio::null());
+        let child = command.spawn().expect("failed to spawn background process");
+        println!("started dsorter in background (pid {})", child.id());
+        std::process::exit(0);
+    }
 
-    if let Err(e) = daemonize.start() {
-        eprintln!("failed to daemonize: {e}");
-        std::process::exit(1);
+    #[cfg(windows)]
+    fs::write(pid_path, std::process::id().to_string()).expect("failed to write pid file");
+
+    #[cfg(unix)]
+    {
+        let daemonize = Daemonize::new().pid_file(pid_path);
+        if let Err(e) = daemonize.start() {
+            eprintln!("failed to daemonize: {e}");
+            std::process::exit(1);
+        }
     }
 
     let reload_flag = Arc::new(AtomicBool::new(false));
-    flag::register(SIGHUP, Arc::clone(&reload_flag)).expect("failed to register SIGHUP handler");
+    let stop_flag = Arc::new(AtomicBool::new(false));
+
+    #[cfg(unix)]
+    {
+        flag::register(SIGHUP, Arc::clone(&reload_flag))
+            .expect("failed to register SIGHUP handler");
+        flag::register(SIGTERM, Arc::clone(&stop_flag))
+            .expect("failed to register SIGTERM handler");
+        flag::register(SIGINT, Arc::clone(&stop_flag)).expect("failed to register SIGINT handler");
+    }
+
+    #[cfg(windows)]
+    let (_stop_event, _reload_event) = {
+        let stop_name: Vec<u16> = "Local\\dsorter_stop\0".encode_utf16().collect();
+        let reload_name: Vec<u16> = "Local\\dsorter_reload\0".encode_utf16().collect();
+
+        unsafe {
+            let stop_handle = windows_sys::Win32::System::Threading::CreateEventW(
+                std::ptr::null(),
+                0,
+                0,
+                stop_name.as_ptr(),
+            );
+            windows_sys::Win32::System::Threading::ResetEvent(stop_handle);
+            let reload_handle = windows_sys::Win32::System::Threading::CreateEventW(
+                std::ptr::null(),
+                0,
+                0,
+                reload_name.as_ptr(),
+            );
+            windows_sys::Win32::System::Threading::ResetEvent(reload_handle);
+
+            let reload_flag = Arc::clone(&reload_flag);
+            let stop_flag = Arc::clone(&stop_flag);
+            let stop_raw = stop_handle as isize;
+            let reload_raw = reload_handle as isize;
+
+            std::thread::spawn(move || {
+                let handles = [stop_raw as _, reload_raw as _];
+                const INFINITE: u32 = 0xFFFFFFFF;
+                const WAIT_OBJECT_0: u32 = windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+                loop {
+                    let wait_result = windows_sys::Win32::System::Threading::WaitForMultipleObjects(
+                        2,
+                        handles.as_ptr(),
+                        0,
+                        INFINITE,
+                    );
+                    if wait_result == WAIT_OBJECT_0 {
+                        stop_flag.store(true, Ordering::Relaxed);
+                        break;
+                    } else if wait_result == WAIT_OBJECT_0 + 1 {
+                        reload_flag.store(true, Ordering::Relaxed);
+                    } else {
+                        break;
+                    }
+                }
+            });
+
+            (stop_handle, reload_handle)
+        }
+    };
 
     let mut config = match config::load_or_create_config(config_override) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("config error: {e}");
+            log_line(log_path, &format!("config error: {e}"));
             std::process::exit(1);
         }
     };
@@ -116,7 +212,7 @@ pub fn handle_start(
         config.partial.extensions.iter().map(|s| s.to_lowercase()).collect();
 
     let mut watch_path = expand_tilde(&config.watch.path);
-    let status_path = status_path().expect("Could nto determine the status path");
+    let status_path = status_path().expect("Could not determine the status path");
 
     let started_at = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
     let mut status = Status {
@@ -129,10 +225,26 @@ pub fn handle_start(
     write_status(&status_path, &status);
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
-    let mut watcher = notify::recommended_watcher(tx).unwrap();
-    watcher.watch(&watch_path, RecursiveMode::NonRecursive).unwrap();
+    let mut watcher = match notify::recommended_watcher(tx) {
+        Ok(w) => w,
+        Err(e) => {
+            log_line(log_path, &format!("failed to create watcher: {e}"));
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = watcher.watch(&watch_path, RecursiveMode::NonRecursive) {
+        log_line(log_path, &format!("failed to watch {}: {e}", watch_path.display()));
+        std::process::exit(1);
+    }
 
     loop {
+        if stop_flag.load(Ordering::Relaxed) {
+            log_line(log_path, "dsorter received stop signal, shutting down");
+            let _ = fs::remove_file(pid_path);
+            break;
+        }
+
         if reload_flag.swap(false, Ordering::Relaxed) {
             match config::load_or_create_config(config_override) {
                 Ok(new_config) => {
@@ -188,13 +300,14 @@ pub fn handle_start(
 
         match res {
             Ok(event) => {
-                if event.kind == Create(File)
-                    || event.kind == Modify(ModifyKind::Name(RenameMode::Any))
-                {
-                    let path = event.paths.last().unwrap();
+                let is_candidate = matches!(event.kind, Create(_) | Modify(ModifyKind::Name(_)));
+                if is_candidate {
+                    let Some(path) = event.paths.last() else {
+                        continue;
+                    };
 
                     //prevents spamming for partial downloaded files
-                    if !path.exists() {
+                    if !path.exists() || path.is_dir() {
                         continue;
                     }
                     let filename = path.file_name().unwrap().to_string_lossy().to_string();
@@ -246,9 +359,45 @@ pub fn handle_start(
 pub fn handle_stop(pid_path: &Path) {
     match read_existing_pid(pid_path) {
         Some(pid) if pid_is_alive(pid) => {
-            kill(Pid::from_raw(pid), Signal::SIGTERM).expect("failed to send SIGTERM");
-            let _ = fs::remove_file(pid_path);
-            println!("stopped dsorter (pid {pid})");
+            #[cfg(unix)]
+            {
+                kill(Pid::from_raw(pid), Signal::SIGTERM).expect("failed to send SIGTERM");
+                let _ = fs::remove_file(pid_path);
+                println!("stopped dsorter (pid {pid})");
+            }
+            #[cfg(windows)]
+            {
+                let event_name: Vec<u16> = "Local\\dsorter_stop\0".encode_utf16().collect();
+                unsafe {
+                    let handle = windows_sys::Win32::System::Threading::OpenEventW(
+                        0x0002,
+                        0,
+                        event_name.as_ptr(),
+                    );
+                    if !handle.is_null() {
+                        windows_sys::Win32::System::Threading::SetEvent(handle);
+                        windows_sys::Win32::Foundation::CloseHandle(handle);
+                    }
+                }
+                for _ in 0..30 {
+                    if !pid_is_alive(pid) {
+                        let _ = fs::remove_file(pid_path);
+                        println!("stopped dsorter (pid {pid})");
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                unsafe {
+                    let process_handle =
+                        windows_sys::Win32::System::Threading::OpenProcess(0x0001, 0, pid as u32);
+                    if !process_handle.is_null() {
+                        windows_sys::Win32::System::Threading::TerminateProcess(process_handle, 1);
+                        windows_sys::Win32::Foundation::CloseHandle(process_handle);
+                    }
+                }
+                let _ = fs::remove_file(pid_path);
+                println!("stopped dsorter (pid {pid})");
+            }
         }
         _ => {
             eprintln!("dsorter is not running");
@@ -279,8 +428,27 @@ pub fn handle_status(pid_path: &Path, status_path: &Path) {
 pub fn handle_reload(pid_path: &Path) {
     match read_existing_pid(pid_path) {
         Some(pid) if pid_is_alive(pid) => {
-            kill(Pid::from_raw(pid), Signal::SIGHUP).expect("failed to send SIGHUP");
-            println!("reloaded dsorter config (pid {pid})");
+            #[cfg(unix)]
+            {
+                kill(Pid::from_raw(pid), Signal::SIGHUP).expect("failed to send SIGHUP");
+                println!("reloaded dsorter config (pid {pid})");
+            }
+            #[cfg(windows)]
+            {
+                let event_name: Vec<u16> = "Local\\dsorter_reload\0".encode_utf16().collect();
+                unsafe {
+                    let handle = windows_sys::Win32::System::Threading::OpenEventW(
+                        0x0002,
+                        0,
+                        event_name.as_ptr(),
+                    );
+                    if !handle.is_null() {
+                        windows_sys::Win32::System::Threading::SetEvent(handle);
+                        windows_sys::Win32::Foundation::CloseHandle(handle);
+                    }
+                }
+                println!("reloaded dsorter config (pid {pid})");
+            }
         }
         _ => eprintln!("dsorter is not running"),
     }
@@ -344,4 +512,33 @@ WantedBy=default.target
     fs::write(&unit_path, unit).expect("failed to write unit file");
     println!("wrote {}", unit_path.display());
     println!("run: systemctl --user enable --now dsorter.service");
+}
+
+#[cfg(target_os = "windows")]
+pub fn handle_install() {
+    let exe = std::env::current_exe().expect("could not resolve binary path");
+    let command = format!("\"{}\" start", exe.display());
+
+    let status = Command::new("reg")
+        .args([
+            "add",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+            "/v",
+            "dsorter",
+            "/t",
+            "REG_SZ",
+            "/d",
+            &command,
+            "/f",
+        ])
+        .status()
+        .expect("failed to execute reg.exe");
+
+    if status.success() {
+        println!(r"Registered dsorter in HKCU\Software\Microsoft\Windows\CurrentVersion\Run");
+        println!("dsorter will start automatically when you log in.");
+    } else {
+        eprintln!("failed to register auto-start: reg.exe exited with code {status}");
+        std::process::exit(1);
+    }
 }
